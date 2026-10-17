@@ -1,0 +1,9 @@
+{
+  "name": "painel-xp-firebase",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Painel XP com Firebase Authentication e Realtime Database, sem Cloud Functions",
+  "scripts": {
+    "check": "node --input-type=module --check < app.js && node --input-type=module --check < firebase-adapter.js && node --input-type=module --check < config.js && node -e \"JSON.parse(require('fs').readFileSync('database.rules.json','utf8')); JSON.parse(require('fs').readFileSync('firebase.json','utf8')); console.log('JSON válido')\""
+  }
+}

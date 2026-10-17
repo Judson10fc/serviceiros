@@ -1,0 +1,35 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || (data.child('serviceiroUid').val() === auth.uid && root.child('users').child(auth.uid).child('role').val() === 'serviceiro'))",
+        ".write": "auth != null && (auth.uid === $uid || (data.child('serviceiroUid').val() === auth.uid && root.child('users').child(auth.uid).child('role').val() === 'serviceiro'))",
+        ".validate": "newData.hasChildren(['role','name','email','status']) && (newData.child('role').val() === 'serviceiro' || newData.child('role').val() === 'client') && (!data.exists() || newData.child('role').val() === data.child('role').val()) && (newData.child('role').val() !== 'client' || (newData.child('serviceiroUid').isString() && root.child('users').child(newData.child('serviceiroUid').val()).child('role').val() === 'serviceiro' && (!data.exists() || newData.child('serviceiroUid').val() === data.child('serviceiroUid').val())))"
+      }
+    },
+    "serviceiroData": {
+      "$serviceiroUid": {
+        ".read": "auth != null && auth.uid === $serviceiroUid && root.child('users').child(auth.uid).child('role').val() === 'serviceiro'",
+        ".write": "auth != null && auth.uid === $serviceiroUid && root.child('users').child(auth.uid).child('role').val() === 'serviceiro'"
+      }
+    },
+    "clientData": {
+      "$clientUid": {
+        "profile": {
+          ".read": "auth != null && (auth.uid === $clientUid || (root.child('users').child($clientUid).child('serviceiroUid').val() === auth.uid && root.child('users').child(auth.uid).child('role').val() === 'serviceiro'))",
+          ".write": "auth != null && ((auth.uid === $clientUid && !data.exists()) || (root.child('users').child($clientUid).child('serviceiroUid').val() === auth.uid && root.child('users').child(auth.uid).child('role').val() === 'serviceiro'))"
+        },
+        "entries": {
+          ".read": "auth != null && (auth.uid === $clientUid || (root.child('users').child($clientUid).child('serviceiroUid').val() === auth.uid && root.child('users').child(auth.uid).child('role').val() === 'serviceiro'))",
+          ".write": "auth != null && root.child('users').child($clientUid).child('serviceiroUid').val() === auth.uid && root.child('users').child(auth.uid).child('role').val() === 'serviceiro'"
+        },
+        "cycles": {
+          ".read": "auth != null && (auth.uid === $clientUid || (root.child('users').child($clientUid).child('serviceiroUid').val() === auth.uid && root.child('users').child(auth.uid).child('role').val() === 'serviceiro'))",
+          ".write": "auth != null && root.child('users').child($clientUid).child('serviceiroUid').val() === auth.uid && root.child('users').child(auth.uid).child('role').val() === 'serviceiro'"
+        }
+      }
+    }
+  }
+}

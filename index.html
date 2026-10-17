@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#10243e">
+  <meta name="description" content="Painel de apuração de XP para serviceiros">
+  <title>Painel XP — Serviceiros</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" aria-live="polite"><div class="boot">Inicializando Painel XP…</div></div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="config.js"></script>
+  <script>
+    window.addEventListener('error', function (event) {
+      if (event.target && event.target.tagName === 'SCRIPT' && /gstatic.com\/firebasejs/.test(event.target.src || '')) {
+        const app = document.getElementById('app');
+        if (app) app.innerHTML = '<section style="max-width:720px;margin:10vh auto;padding:24px;font:16px system-ui;background:#fff;border-radius:16px;color:#18283b"><h2>Não foi possível carregar o SDK do Firebase</h2><p>Verifique a conexão com a internet e se a rede permite acessar www.gstatic.com. O Firebase Authentication e o Realtime Database dependem desse SDK.</p><p>O Painel XP não utiliza Cloud Functions.</p></section>';
+      }
+    }, true);
+  </script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="firebase-adapter.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
