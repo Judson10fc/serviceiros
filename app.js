@@ -21,8 +21,16 @@
   // XP é inteiro, mas é exibido com separador de milhar enquanto o usuário digita.
   const parseXP = value => { const digits = String(value ?? '').replace(/\D/g, ''); return digits ? Number(digits) : 0; };
   const formatXPInput = value => { const digits = String(value ?? '').replace(/\D/g, ''); return digits ? Number(digits).toLocaleString('pt-BR', { maximumFractionDigits: 0, useGrouping: true }) : ''; };
-  const billedXP = (entry, client) => entryXP(entry) / Math.max(1, Number(client?.xpPerBillingUnit ?? 1000));
-  const formatBilledXP = value => Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+  // A unidade usada no lançamento é registrada no próprio lançamento para evitar que a tabela dependa de um objeto de cliente que pode vir incompleto do Firebase. Registros antigos usam a configuração atual do cliente; se ela não existir, o padrão é dividir por 1000.
+  const billingUnitFor = (entry, client) => {
+    // A configuração atual do cliente é a fonte principal; lançamentos antigos
+    // sem configuração usam o valor salvo no lançamento e, por último, 1000.
+    const raw = client?.xpPerBillingUnit ?? client?.billingDivisor ?? entry?.xpPerBillingUnit ?? entry?.billingDivisor ?? 1000;
+    return Number(raw) === 1 ? 1 : 1000;
+  };
+  // O cálculo interno mantém todas as casas decimais; somente a apresentação arredonda.
+  const billedXP = (entry, client) => entryXP(entry) / billingUnitFor(entry, client);
+  const formatBilledXP = value => Math.round(Number(value || 0)).toLocaleString('pt-BR', { maximumFractionDigits: 0, minimumFractionDigits: 0 });
   const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
   const fromHex = value => new Uint8Array(String(value).match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []);
   async function hashPassword(password, saltHex = '') {
@@ -57,7 +65,7 @@
   const entryClientName = entry => customerById(entry.clientId)?.name || clientById(entry.serviceiroId)?.name || entry.clientName || 'Cliente removido';
   const entryXP = entry => entry.dayStatus === 'no_activity' ? 0 : Math.max(0, Number(entry.xpFinal || 0) - Number(entry.xpInitial || 0));
   const rateFor = (client, cycle) => Number(cycle?.rateBrlPer1000Xp ?? client?.rateBrlPer1000Xp ?? 0);
-  const amountFor = (entry, client, cycle) => entryXP(entry) / Number(client?.xpPerBillingUnit || 1000) * rateFor(client, cycle);
+  const amountFor = (entry, client, cycle) => billedXP(entry, client) * rateFor(client, cycle);
   const cycleEntries = cycle => activeEntries().filter(e => String(e.clientId) === String(cycle.clientId) && e.referenceDate >= cycle.startDate && e.referenceDate <= cycle.endDate);
   const cycleTotals = cycle => {
     const client = customerById(cycle.clientId);
@@ -288,11 +296,11 @@
     const c = clientById(state.currentClientId) || state.clients[0];
     if (!c) return emptyState('Perfil indisponível','Entre novamente ou peça ao serviceiro para verificar o cadastro.');
     const myEntries = activeEntries().filter(e=>String(e.clientId)===String(c.id) || String(e.clientUid)===String(c.id)).sort((a,b)=>(b.referenceDate||'').localeCompare(a.referenceDate||''));
-    const totalXP = myEntries.reduce((sum,e)=>sum+entryXP(e),0);
+    const totalXP = myEntries.reduce((sum,e)=>sum+billedXP(e,c),0);
     const totalValue = myEntries.reduce((sum,e)=>sum+amountFor(e,c),0);
     return `${state.preview?`<div class="preview-banner">Prévia local do portal.<button class="link-button" data-action="back-to-admin">Voltar</button></div>`:''}
       <header class="portal-heading"><div><span class="eyebrow">SEU HISTÓRICO</span><h2>Olá, ${esc((c.name||'').split(' ')[0])}.</h2><p>Acompanhe todo o XP cadastrado e os valores acumulados.</p></div>${state.preview?'':`<button class="secondary" data-action="logout">Sair</button>`}</header>
-      <section class="metrics three">${metric('XP acumulado',integer(totalXP),'soma de todas as apurações','blue')}${metric('Valor acumulado',money(totalValue),'total estimado a pagar','gold')}${metric('Dias registrados',integer(myEntries.length),'registros no histórico','green')}</section>
+      <section class="metrics three">${metric('XP acumulado',formatBilledXP(totalXP),'soma de todas as apurações','blue')}${metric('Valor acumulado',money(totalValue),'total estimado a pagar','gold')}${metric('Dias registrados',integer(myEntries.length),'registros no histórico','green')}</section>
       <section class="section"><div class="toolbar"><div><h2>Minhas apurações</h2><p>Histórico em modo de consulta.</p></div></div>${myEntries.length?entriesTable(myEntries,false):emptyState('Nenhuma apuração','Quando o serviceiro cadastrar XP, os registros aparecerão aqui.')}</section>`;
   }
   function render() {
@@ -408,7 +416,8 @@
   }
   async function saveEntry(form) {
     const f = new FormData(form); const existing = form.dataset.id ? state.entries.find(e=>String(e.id)===String(form.dataset.id)) : null;
-    const data = { clientId: f.get('clientId'), referenceDate: f.get('referenceDate'), xpInitial: parseXP(f.get('xpInitial')), xpFinal: parseXP(f.get('xpFinal')), dayStatus: f.get('dayStatus'), notes: String(f.get('notes')||'').trim() };
+    const selectedCustomer = customerById(f.get('clientId'));
+    const data = { clientId: f.get('clientId'), referenceDate: f.get('referenceDate'), xpInitial: parseXP(f.get('xpInitial')), xpFinal: parseXP(f.get('xpFinal')), dayStatus: f.get('dayStatus'), notes: String(f.get('notes')||'').trim(), xpPerBillingUnit: billingUnitFor(existing || {}, selectedCustomer) };
     if (!data.referenceDate || data.xpInitial < 0 || data.xpFinal < 0) return notify('Informe uma data e valores de XP válidos.', true);
     if (data.dayStatus==='worked' && data.xpFinal < data.xpInitial) return notify('XP final não pode ser menor que XP inicial.', true);
     if (data.dayStatus==='no_activity') data.xpInitial = data.xpFinal = 0;
