@@ -27,7 +27,7 @@
     const email = String(data.email || '').trim().toLowerCase();
     if (!email) throw new Error('Informe um e-mail para o Cliente entrar no sistema e recuperar o acesso.');
     const password = String(data.initialPassword || '');
-    if (password.length < 8 || password !== String(data.passwordConfirm || '')) throw new Error('A senha provisória deve ter ao menos 8 caracteres e as confirmações devem ser iguais.');
+    if (!/^[A-Za-z0-9]{6,}$/.test(password) || password !== String(data.passwordConfirm || '')) throw new Error('A senha do cliente deve ter pelo menos 6 letras e/ou números, e as confirmações devem ser iguais.');
     const secondaryName = `customer-${serviceiro.id}-${Date.now()}`;
     const secondary = firebase.initializeApp(cfg, secondaryName);
     try {
@@ -50,7 +50,7 @@
     } catch (error) {
       const code = error?.code || '';
       if (code === 'auth/email-already-in-use') throw new Error('Este e-mail já está cadastrado no Firebase Authentication.');
-      if (code === 'auth/weak-password') throw new Error('A senha precisa ter pelo menos 6 caracteres no Firebase; neste painel exigimos 8.');
+      if (code === 'auth/weak-password') throw new Error('O Firebase exige senha com pelo menos 6 caracteres. Use letras e/ou números.');
       throw error;
     } finally {
       try { await secondary.delete(); } catch (_) {}

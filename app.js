@@ -65,7 +65,12 @@
   const entryClientName = entry => customerById(entry.clientId)?.name || clientById(entry.serviceiroId)?.name || entry.clientName || 'Cliente removido';
   const entryXP = entry => entry.dayStatus === 'no_activity' ? 0 : Math.max(0, Number(entry.xpFinal || 0) - Number(entry.xpInitial || 0));
   const rateFor = (client, cycle) => Number(cycle?.rateBrlPer1000Xp ?? client?.rateBrlPer1000Xp ?? 0);
-  const amountFor = (entry, client, cycle) => billedXP(entry, client) * rateFor(client, cycle);
+  // Regra de cobrança: calcular o XP por unidade, arredondar para inteiro,
+  // multiplicar pela taxa cadastrada e converter o resultado para milhares de reais.
+  // Ex.: 50.688.356 XP -> 50.688 após /1000 e arredondamento;
+  // 50.688 * 1,20 / 1000 = R$ 60,8256 -> R$ 60,83 na apresentação.
+  const amountFor = (entry, client, cycle) =>
+    (Math.round(billedXP(entry, client)) * rateFor(client, cycle)) / 1000;
   const cycleEntries = cycle => activeEntries().filter(e => String(e.clientId) === String(cycle.clientId) && e.referenceDate >= cycle.startDate && e.referenceDate <= cycle.endDate);
   const cycleTotals = cycle => {
     const client = customerById(cycle.clientId);
@@ -152,6 +157,10 @@
     }
     state.view = nextView;
   }
+  function clientAuthPassword(email, pin) {
+    // Firebase Email/Password exige pelo menos 6 caracteres; o cliente digita apenas seu PIN de 4 dígitos.
+    return `PX-${String(email).trim().toLowerCase()}-${String(pin)}`;
+  }
   async function login(email, password, expectedRole) {
     if (!API_MODE) {
       const user = state.clients.find(c => c.email?.toLowerCase() === email.toLowerCase() && c.status === 'active');
@@ -161,7 +170,17 @@
       if (state.me.mustChangePassword) { state.view = 'password-change'; render(); return; }
       state.view = 'dashboard'; render(); return;
     }
-    await api('/auth/session', 'POST', { email, password });
+    if (state.loginMode === 'client') {
+      try {
+        await api('/auth/session', 'POST', { email, password });
+      } catch (firstError) {
+        // Compatibilidade com contas antigas criadas antes da regra de PIN de 4 dígitos.
+        try { await api('/auth/session', 'POST', { email, password: clientAuthPassword(email, password) }); }
+        catch (_) { throw firstError; }
+      }
+    } else {
+      await api('/auth/session', 'POST', { email, password });
+    }
     state.me = await api('/me');
     const actualRole = state.me.role === 'administrator' ? 'admin' : state.me.role;
     if (expectedRole !== 'any' && actualRole !== expectedRole) {
@@ -207,7 +226,7 @@
         ? 'Entre com o e-mail e a senha provisória cadastrados pelo administrador. No primeiro acesso, você criará sua senha pessoal.'
         : 'O banco ainda não está conectado. Use a demonstração para organizar cadastros, apurações e ciclos neste navegador.';
     const access = API_MODE
-      ? `<form class="form" id="login-form" data-role="any"><label>E-mail<input type="email" name="email" autocomplete="username" required></label><label>Senha<input type="password" name="password" autocomplete="current-password" required></label><button class="primary wide" type="submit">Entrar</button><button class="link-button" type="button" data-action="reset-password">Esqueci minha senha</button></form>${serviceiroLogin ? `<button class="secondary wide" data-action="register-serviceiro">Criar conta de Serviceiro</button>` : ''}`
+      ? `<form class="form" id="login-form" data-role="any"><label>E-mail<input type="email" name="email" autocomplete="username" required></label><label>Senha (${serviceiroLogin?'mínimo 6 caracteres':'mínimo 6 caracteres'})<input type="password" name="password" autocomplete="current-password" pattern="[A-Za-z0-9]{6,}" minlength="6" required></label><button class="primary wide" type="submit">Entrar</button><button class="link-button" type="button" data-action="reset-password">Esqueci minha senha</button></form>${serviceiroLogin ? `<button class="secondary wide" data-action="register-serviceiro">Criar conta de Serviceiro</button>` : ''}`
       : `<div class="form-error">O Firebase não foi carregado. Confira a conexão e os arquivos de configuração; nenhum dado local de demonstração será usado.</div>`;
     const switchAction = serviceiroLogin ? 'client-login' : 'serviceiro-login';
     const switchLabel = serviceiroLogin ? 'É Cliente?' : 'É Serviceiro?';
@@ -219,13 +238,13 @@
       </div></section></main>`;
   }
   function renderServiceiroRegistration(message = '') {
-    app.innerHTML = `<main class="login"><section class="login-visual">${logo()}<div class="hero"><span class="eyebrow">NOVO SERVICEIRO</span><h1>Organize seus serviços.</h1><p>Crie sua conta individual para gerenciar clientes e cadastros de XP.</p></div><p class="security">Sua conta será vinculada ao seu UID do Firebase Authentication.</p></section><section class="login-card"><div class="login-inner"><span class="eyebrow">CADASTRO</span><h2>Criar conta de Serviceiro</h2><p class="muted">Preencha os dados para começar.</p>${message?`<div class="form-error">${esc(message)}</div>`:''}<form class="form" id="serviceiro-registration-form"><label>Nome completo<input name="name" required maxlength="120"></label><label>Nick no jogo<input name="nickname" maxlength="80"></label><label>E-mail<input name="email" type="email" autocomplete="email" required maxlength="160"></label><label>Senha (mínimo 8 caracteres)<input name="password" type="password" autocomplete="new-password" minlength="8" required></label><label>Confirmar senha<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" required></label><button class="primary wide" type="submit">Criar minha conta</button><button class="secondary wide" type="button" data-action="cancel-registration">Voltar ao login</button></form></div></section></main>`;
+    app.innerHTML = `<main class="login"><section class="login-visual">${logo()}<div class="hero"><span class="eyebrow">NOVO SERVICEIRO</span><h1>Organize seus serviços.</h1><p>Crie sua conta individual para gerenciar clientes e cadastros de XP.</p></div><p class="security">Sua conta será vinculada ao seu UID do Firebase Authentication.</p></section><section class="login-card"><div class="login-inner"><span class="eyebrow">CADASTRO</span><h2>Criar conta de Serviceiro</h2><p class="muted">Preencha os dados para começar.</p>${message?`<div class="form-error">${esc(message)}</div>`:''}<form class="form" id="serviceiro-registration-form"><label>Nome completo<input name="name" required maxlength="120"></label><label>Nick no jogo<input name="nickname" maxlength="80"></label><label>E-mail<input name="email" type="email" autocomplete="email" required maxlength="160"></label><label>Senha do Serviceiro (mínimo 6 caracteres)<input name="password" type="password" pattern="[A-Za-z0-9]{6,}" autocomplete="new-password" minlength="6" required></label><label>Confirmar senha<input name="passwordConfirm" type="password" pattern="[A-Za-z0-9]{6,}" autocomplete="new-password" minlength="6" required></label><button class="primary wide" type="submit">Criar minha conta</button><button class="secondary wide" type="button" data-action="cancel-registration">Voltar ao login</button></form></div></section></main>`;
   }
 
   function renderPasswordChange(message = '') {
     app.innerHTML = `<main class="login"><section class="login-visual">${logo()}<div class="hero"><span class="eyebrow">PRIMEIRO ACESSO</span><h1>Crie sua senha pessoal.</h1><p>Defina uma senha que só você conheça para proteger seu acesso.</p></div><p class="security">A senha provisória deixa de valer após esta etapa.</p></section>
-      <section class="login-card"><div class="login-inner"><span class="eyebrow">ATUALIZAÇÃO OBRIGATÓRIA</span><h2>Troque a senha provisória</h2><p class="muted">Para continuar, crie sua senha pessoal com pelo menos 8 caracteres.</p>${message?`<div class="form-error">${esc(message)}</div>`:''}
-      <form class="form" id="password-change-form"><label>Nova senha<input type="password" name="password" autocomplete="new-password" minlength="8" maxlength="128" required></label><label>Confirme a nova senha<input type="password" name="passwordConfirm" autocomplete="new-password" minlength="8" maxlength="128" required></label><button class="primary wide" type="submit">Salvar minha senha</button></form>
+      <section class="login-card"><div class="login-inner"><span class="eyebrow">ATUALIZAÇÃO OBRIGATÓRIA</span><h2>Troque a senha provisória</h2><p class="muted">Para continuar, crie sua senha pessoal com pelo menos 6 letras e/ou números.</p>${message?`<div class="form-error">${esc(message)}</div>`:''}
+      <form class="form" id="password-change-form"><label>Nova senha (mínimo 6 caracteres)<input type="password" name="password" pattern="[A-Za-z0-9]{6,}" autocomplete="new-password" minlength="6" required></label><label>Confirme a nova senha<input type="password" name="passwordConfirm" pattern="[A-Za-z0-9]{6,}" autocomplete="new-password" minlength="6" required></label><button class="primary wide" type="submit">Salvar minha senha</button></form>
       </div></section></main>`;
   }
 
@@ -323,13 +342,13 @@
   function clientForm(c = {}) {
     const isEdit = Boolean(c.id);
     return `<div class="modal-backdrop" data-action="backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close" data-action="close-modal" aria-label="Fechar">×</button><span class="eyebrow">${isEdit?'EDITAR':'NOVO'} SERVICEIRO</span><h2 id="modal-title">${isEdit?'Atualizar cadastro':'Cadastrar serviceiro'}</h2><form class="form" id="client-form" data-id="${esc(c.id||'')}">
-      <div class="grid"><label>Nome completo<input name="name" value="${esc(c.name)}" required maxlength="120"></label><label>Nick no jogo<input name="nickname" value="${esc(c.nickname)}" required maxlength="80"></label><label>E-mail de acesso<input name="email" type="email" value="${esc(c.email)}" required maxlength="160"></label><label>Situação<select name="status"><option value="active" ${c.status!=='inactive'&&c.status!=='archived'?'selected':''}>Ativo</option><option value="inactive" ${c.status==='inactive'?'selected':''}>Inativo</option><option value="archived" ${c.status==='archived'?'selected':''}>Arquivado</option></select></label>${isEdit?`<label>Nova senha provisória (opcional)<input name="initialPassword" type="password" autocomplete="new-password" minlength="8" maxlength="128"><small>Se preenchida, será exigida troca no próximo acesso.</small></label><label>Confirme a nova senha<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="128"></label>`:`<label>Senha provisória<input name="initialPassword" type="password" autocomplete="new-password" minlength="8" maxlength="128" required><small>O serviceiro trocará por sua senha pessoal ao entrar pela primeira vez.</small></label><label>Confirme a senha provisória<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label>`}</div>
+      <div class="grid"><label>Nome completo<input name="name" value="${esc(c.name)}" required maxlength="120"></label><label>Nick no jogo<input name="nickname" value="${esc(c.nickname)}" required maxlength="80"></label><label>E-mail de acesso<input name="email" type="email" value="${esc(c.email)}" required maxlength="160"></label><label>Situação<select name="status"><option value="active" ${c.status!=='inactive'&&c.status!=='archived'?'selected':''}>Ativo</option><option value="inactive" ${c.status==='inactive'?'selected':''}>Inativo</option><option value="archived" ${c.status==='archived'?'selected':''}>Arquivado</option></select></label>${isEdit?`<label>Nova senha provisória (mínimo 6 caracteres, opcional)<input name="initialPassword" type="password" pattern="[A-Za-z0-9]{6,}" autocomplete="new-password" minlength="6"><small>Se preenchida, será exigida troca no próximo acesso.</small></label><label>Confirme a nova senha<input name="passwordConfirm" type="password" pattern="[A-Za-z0-9]{6,}" autocomplete="new-password" minlength="6"></label>`:`<label>Senha provisória (mínimo 6 caracteres)<input name="initialPassword" type="password" pattern="[A-Za-z0-9]{6,}" autocomplete="new-password" minlength="6" required><small>O serviceiro trocará por sua senha pessoal com pelo menos 6 letras e/ou números ao entrar pela primeira vez.</small></label><label>Confirme a senha provisória<input name="passwordConfirm" type="password" pattern="[A-Za-z0-9]{6,}" autocomplete="new-password" minlength="6" required></label>`}</div>
       <p class="note">O dono do site libera a conta com uma senha provisória. No primeiro login, o serviceiro define a própria senha pessoal; depois, cadastra e administra os clientes na própria área.</p><div class="form-actions"><button type="button" class="secondary" data-action="close-modal">Cancelar</button><button class="primary" type="submit">${isEdit?'Salvar alterações':'Criar serviceiro'}</button></div></form></section></div>`;
   }
   function customerForm(c = {}) {
     const isEdit = Boolean(c.id);
     return `<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close" data-action="close-modal" aria-label="Fechar">×</button><span class="eyebrow">${isEdit?'EDITAR':'NOVO'} CLIENTE</span><h2 id="modal-title">${isEdit?'Atualizar cliente':'Cadastrar cliente'}</h2><form class="form" id="customer-form" data-id="${esc(c.id||'')}">
-      <div class="grid"><label>Nome do cliente<input name="name" value="${esc(c.name)}" required maxlength="120"></label><label>Nick/identificação<input name="nickname" value="${esc(c.nickname)}" maxlength="80"></label><label>E-mail de acesso<input name="email" type="email" value="${esc(c.email)}" maxlength="160" required><small>Usado no login e na recuperação da conta.</small></label>${isEdit?`<p class="note full">Para redefinir a senha, o Cliente deve usar a recuperação por e-mail do Firebase Authentication. Sem Cloud Functions, o Serviceiro não pode alterar diretamente a senha de outra conta com segurança.</p>`:`<label>Senha provisória<input name="initialPassword" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label><label>Confirme a senha provisória<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label>`}<label>Telefone/contato<input name="phone" value="${esc(c.phone)}" maxlength="40"></label><label>Situação<select name="status"><option value="active" ${c.status!=='inactive'&&c.status!=='archived'?'selected':''}>Ativo</option><option value="inactive" ${c.status==='inactive'?'selected':''}>Inativo</option><option value="archived" ${c.status==='archived'?'selected':''}>Arquivado</option></select></label><label class="full">Deseja dividir o XP por 1000 para calcular o valor?<select name="xpPerBillingUnit" required><option value="1000" ${Number(c.xpPerBillingUnit??1000)===1000?'selected':''}>Sim — (XP final − XP inicial) ÷ 1000</option><option value="1" ${Number(c.xpPerBillingUnit??1000)===1?'selected':''}>Não — usar o XP integral (XP final − XP inicial)</option></select><small>Você pode alterar essa opção depois editando o cliente.</small></label><label>Valor por unidade em R$<input name="rateBrlPer1000Xp" type="number" min="0" step="0.01" value="${esc(c.rateBrlPer1000Xp??1.2)}" required><small>Multiplicado pelo XP calculado conforme a opção acima.</small></label></div>
+      <div class="grid"><label>Nome do cliente<input name="name" value="${esc(c.name)}" required maxlength="120"></label><label>Nick/identificação<input name="nickname" value="${esc(c.nickname)}" maxlength="80"></label><label>E-mail de acesso<input name="email" type="email" value="${esc(c.email)}" maxlength="160" required><small>Usado no login e na recuperação da conta.</small></label>${isEdit?`<p class="note full">Para redefinir a senha, o Cliente deve usar a recuperação por e-mail do Firebase Authentication. Sem Cloud Functions, o Serviceiro não pode alterar diretamente a senha de outra conta com segurança.</p>`:`<label>Senha do cliente (mínimo 6 caracteres)<input name="initialPassword" type="password" pattern="[A-Za-z0-9]{6,}" autocomplete="new-password" minlength="6" required></label><label>Confirme a senha (mínimo 6 caracteres)<input name="passwordConfirm" type="password" pattern="[A-Za-z0-9]{6,}" autocomplete="new-password" minlength="6" required></label>`}<label>Telefone/contato<input name="phone" value="${esc(c.phone)}" maxlength="40"></label><label>Situação<select name="status"><option value="active" ${c.status!=='inactive'&&c.status!=='archived'?'selected':''}>Ativo</option><option value="inactive" ${c.status==='inactive'?'selected':''}>Inativo</option><option value="archived" ${c.status==='archived'?'selected':''}>Arquivado</option></select></label><label class="full">Deseja dividir o XP por 1000 para calcular o valor?<select name="xpPerBillingUnit" required><option value="1000" ${Number(c.xpPerBillingUnit??1000)===1000?'selected':''}>Sim — (XP final − XP inicial) ÷ 1000</option><option value="1" ${Number(c.xpPerBillingUnit??1000)===1?'selected':''}>Não — usar o XP integral (XP final − XP inicial)</option></select><small>Você pode alterar essa opção depois editando o cliente.</small></label><label>Valor por unidade em R$<input name="rateBrlPer1000Xp" type="number" min="0" step="0.01" value="${esc(c.rateBrlPer1000Xp??1.2)}" required><small>Multiplicado pelo XP calculado conforme a opção acima.</small></label></div>
       <div class="form-actions"><button type="button" class="secondary" data-action="close-modal">Cancelar</button><button class="primary" type="submit">${isEdit?'Salvar cliente':'Cadastrar cliente'}</button></div></form></section></div>`;
   }
   function entryForm(entry = {}, presetClient = '') {
@@ -365,7 +384,7 @@
     const passwordConfirm = String(f.get('passwordConfirm') || '');
     const data = { name: String(f.get('name')).trim(), nickname: String(f.get('nickname')).trim(), email: String(f.get('email')).trim().toLowerCase(), status: f.get('status') };
     if (!data.name || !data.nickname || !data.email) return notify('Confira os campos do cadastro.', true);
-    if ((!existing || initialPassword) && initialPassword.length < 8) return notify('A senha provisória precisa ter pelo menos 8 caracteres.', true);
+    if ((!existing || initialPassword) && !/^[A-Za-z0-9]{6,}$/.test(initialPassword)) return notify('A senha provisória do Serviceiro deve ter pelo menos 6 letras e/ou números.', true);
     if ((!existing || initialPassword) && initialPassword !== passwordConfirm) return notify('As senhas provisórias não conferem.', true);
     if (existing && !initialPassword && passwordConfirm) return notify('Preencha a nova senha provisória ou deixe os dois campos vazios.', true);
     const duplicate = state.clients.some(c=>c.email?.toLowerCase()===data.email && String(c.id)!==String(existing?.id));
@@ -392,6 +411,8 @@
     const f = new FormData(form); const existing = form.dataset.id ? customerById(form.dataset.id) : null;
     const data = { name:String(f.get('name')).trim(), nickname:String(f.get('nickname')||'').trim(), email:String(f.get('email')||'').trim().toLowerCase(), phone:String(f.get('phone')||'').trim(), status:f.get('status'), xpPerBillingUnit:Number(f.get('xpPerBillingUnit')), rateBrlPer1000Xp:Number(f.get('rateBrlPer1000Xp')), cycleType:f.get('cycleType'), targetValue:Number(f.get('targetValue')||0), targetUnit:f.get('targetUnit'), initialPassword:String(f.get('initialPassword')||''), passwordConfirm:String(f.get('passwordConfirm')||'') };
     if (!data.name || ![1,1000].includes(data.xpPerBillingUnit) || data.rateBrlPer1000Xp<0) return notify('Confira os campos do cliente e a forma de cálculo do XP.',true);
+    if (!existing && !/^[A-Za-z0-9]{6,}$/.test(data.initialPassword)) return notify('A senha do cliente deve ter pelo menos 6 letras e/ou números.', true);
+    if (!existing && data.initialPassword !== data.passwordConfirm) return notify('As senhas do cliente não conferem.', true);
     const duplicate = visibleCustomers().some(c=>data.email && c.email?.toLowerCase()===data.email && String(c.id)!==String(existing?.id));
     if (duplicate) return notify('Já existe um cliente com esse e-mail.',true);
     try {
@@ -529,12 +550,12 @@
     }
     if(form.id==='serviceiro-registration-form') {
       const f=new FormData(form); const password=String(f.get('password')||''); const confirmPassword=String(f.get('passwordConfirm')||'');
-      if(password.length<8 || password!==confirmPassword) return renderServiceiroRegistration('Use uma senha com pelo menos 8 caracteres e confirme corretamente.');
+      if(!/^\d{6}$/.test(password) || password!==confirmPassword) return renderServiceiroRegistration('A senha do Serviceiro deve ter exatamente 6 dígitos numéricos e as confirmações devem ser iguais.');
       try { await window.PainelFirebase.registerServiceiro({name:String(f.get('name')).trim(),nickname:String(f.get('nickname')||'').trim(),email:String(f.get('email')).trim(),password}); state.me=await api('/me'); await loadApiData(); render(); notify('Conta de Serviceiro criada.'); } catch(error) { renderServiceiroRegistration(error.message); }
     }
     if(form.id==='password-change-form') {
       const f=new FormData(form); const password=String(f.get('password')||''); const confirmation=String(f.get('passwordConfirm')||'');
-      if (password.length<8) return renderPasswordChange('A senha precisa ter pelo menos 8 caracteres.');
+      if (!/^\d{6}$/.test(password)) return renderPasswordChange('A senha do Serviceiro deve ter exatamente 6 dígitos numéricos.');
       if (password!==confirmation) return renderPasswordChange('As senhas não conferem. Tente novamente.');
       try {
         if (API_MODE) await api('/auth/password','POST',{ newPassword: password });

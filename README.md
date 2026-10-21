@@ -20,7 +20,7 @@ Esta versão utiliza HTML, CSS, JavaScript, Firebase Authentication e Firebase R
 
 - Cadastro público de Serviceiro com nome, nick, e-mail e senha.
 - Login de Serviceiro e Cliente com e-mail/senha.
-- Cadastro de Cliente pelo Serviceiro com senha provisória (mínimo de 8 caracteres) usando uma segunda instância do Firebase Authentication, sem encerrar a sessão do Serviceiro.
+- Cadastro de Cliente pelo Serviceiro com senha provisória de 4 dígitos para Cliente (PIN convertido internamente para atender ao mínimo do Firebase) e senha de 6 dígitos para Serviceiro usando uma segunda instância do Firebase Authentication, sem encerrar a sessão do Serviceiro.
 - Perfil vinculado ao UID próprio de cada conta.
 - Clientes, apurações e ciclos guardados no Realtime Database.
 - Cliente tem portal de consulta do próprio histórico; não recebe ações de edição de apurações/ciclos.
@@ -52,3 +52,10 @@ Execute `npm run check` para validar sintaxe JS e JSON. Isso é uma verificaçã
 Este projeto é uma aplicação estática com Firebase Authentication e Realtime Database, sem Cloud Functions. As regras bloqueiam leitura/gravação pública. Como a aplicação executa no navegador, a segurança efetiva depende das Security Rules e de fluxos compatíveis com o SDK cliente. A criação de uma conta de Cliente usa uma segunda instância de Authentication; redefinir a senha de outra conta depois da criação não é permitido pelo SDK cliente, então o Cliente usa a recuperação por e-mail.
 
 Antes de usar dados reais, teste no Rules Playground (ou Emulator Suite) o cadastro de Serviceiro, cadastro de Cliente, atualização de perfil, criação/edição/exclusão lógica de apuração e leitura do portal do Cliente. A verificação local não prova integração com o projeto Firebase real.
+
+
+## Regras de senha corrigidas
+- Cliente: exatamente 4 dígitos numéricos; o painel converte o PIN em uma credencial interna mais longa porque o Firebase Authentication exige pelo menos 6 caracteres.
+- Serviceiro: exatamente 6 dígitos numéricos, tanto no cadastro quanto na troca de senha provisória.
+- O PIN de 4 dígitos tem baixa entropia. Para uso real, habilite controles de segurança adicionais e evite reutilizar PINs.
+- A recuperação padrão por e-mail do Firebase permite que o usuário defina uma senha convencional; para manter estritamente o PIN de 4 dígitos após uma recuperação seria necessário um fluxo de recuperação específico. Não há Cloud Functions neste projeto.
